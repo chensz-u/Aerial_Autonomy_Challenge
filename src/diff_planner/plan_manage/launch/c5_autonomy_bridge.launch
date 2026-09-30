@@ -1,0 +1,21 @@
+<launch>
+  <arg name="odom_topic" default="/quad_0/lidar_slam/odom"/>
+  <arg name="cloud_topic" default="/drone_0_pcl_render_node/cloud"/>
+  <arg name="position_command_topic" default="/position_cmd"/>
+  <arg name="heartbeat_topic" default="/drone_0_traj_server/heartbeat"/>
+  <arg name="mandatory_stop_topic" default="/mandatory_stop_to_planner"/>
+  <arg name="start_c5_explorer" default="true"/>
+  <include if="$(arg start_c5_explorer)" file="$(find c5_autonomous_exploration)/launch/c5_autonomous_exploration.launch">
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="cloud_topic" value="$(arg cloud_topic)"/>
+    <arg name="position_command_topic" value="$(arg position_command_topic)"/>
+    <arg name="stop_topic" value="$(arg mandatory_stop_topic)"/>
+  </include>
+  <node pkg="diff_planner" type="c5_planner_bridge_node" name="c5_planner_bridge" output="screen">
+    <rosparam command="load" file="$(find diff_planner)/config/c5_planner_bridge.yaml"/>
+    <param name="odom_topic" value="$(arg odom_topic)"/>
+    <param name="position_command_topic" value="$(arg position_command_topic)"/>
+    <param name="heartbeat_topic" value="$(arg heartbeat_topic)"/>
+    <param name="mandatory_stop_topic" value="$(arg mandatory_stop_topic)"/>
+  </node>
+</launch>

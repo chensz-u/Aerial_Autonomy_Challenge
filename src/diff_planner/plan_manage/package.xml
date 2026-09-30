@@ -55,6 +55,13 @@
   <build_depend>traj_opt</build_depend>
   <build_depend>traj_utils</build_depend>
   <build_depend>path_searching</build_depend>
+  <build_depend>c5_autonomous_exploration</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>nav_msgs</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>pcl_conversions</build_depend>
+  <build_depend>pcl_ros</build_depend>
+  <build_depend>quadrotor_msgs</build_depend>
 
   <build_export_depend>roscpp</build_export_depend>
   <build_export_depend>std_msgs</build_export_depend>
@@ -62,6 +69,13 @@
   <build_export_depend>traj_utils</build_export_depend>
   <build_export_depend>traj_opt</build_export_depend>
   <build_export_depend>path_searching</build_export_depend>
+  <build_export_depend>c5_autonomous_exploration</build_export_depend>
+  <build_export_depend>geometry_msgs</build_export_depend>
+  <build_export_depend>nav_msgs</build_export_depend>
+  <build_export_depend>sensor_msgs</build_export_depend>
+  <build_export_depend>pcl_conversions</build_export_depend>
+  <build_export_depend>pcl_ros</build_export_depend>
+  <build_export_depend>quadrotor_msgs</build_export_depend>
 
   <exec_depend>roscpp</exec_depend>
   <exec_depend>plan_env</exec_depend>
@@ -70,6 +84,13 @@
   <exec_depend>traj_utils</exec_depend>
   <exec_depend>traj_opt</exec_depend>
   <exec_depend>path_searching</exec_depend>
+  <exec_depend>c5_autonomous_exploration</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>pcl_conversions</exec_depend>
+  <exec_depend>pcl_ros</exec_depend>
+  <exec_depend>quadrotor_msgs</exec_depend>
   
 
 

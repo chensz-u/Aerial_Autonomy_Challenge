@@ -1,0 +1,16 @@
+request_topic: /c5/planner_request
+feedback_topic: /c5/planner_feedback
+goal_topic: /goal
+occupied_map_topic: /c5_autonomous_exploration/occupied_map
+odom_topic: /quad_0/lidar_slam/odom
+position_command_topic: /position_cmd
+heartbeat_topic: /drone_0_traj_server/heartbeat
+mandatory_stop_topic: /mandatory_stop_to_planner
+minimum_clearance: 0.60
+command_timeout: 1.50
+goal_timeout: 12.0
+heartbeat_timeout: 1.0
+map_timeout: 2.0
+arrival_tolerance: 0.35
+map_leaf_size: 0.20
+require_map: true

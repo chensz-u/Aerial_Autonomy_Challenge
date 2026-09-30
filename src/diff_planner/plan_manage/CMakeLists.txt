@@ -13,6 +13,11 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   geometry_msgs
+  nav_msgs
+  sensor_msgs
+  pcl_conversions
+  pcl_ros
+  c5_autonomous_exploration
   quadrotor_msgs
   plan_env
   path_searching
@@ -26,7 +31,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
  INCLUDE_DIRS include
  LIBRARIES diff_planner
- CATKIN_DEPENDS plan_env path_searching traj_opt traj_utils 
+  CATKIN_DEPENDS c5_autonomous_exploration geometry_msgs nav_msgs pcl_conversions pcl_ros plan_env path_searching quadrotor_msgs sensor_msgs traj_opt traj_utils
 #  DEPENDS system_lib
 )
 
@@ -51,6 +56,19 @@ target_link_libraries(diff_planner_node
 
 add_executable(traj_server src/traj_server.cpp)
 target_link_libraries(traj_server ${catkin_LIBRARIES})
+
+add_library(c5_planner_bridge_core src/c5_planner_bridge_core.cpp)
+target_link_libraries(c5_planner_bridge_core ${catkin_LIBRARIES})
+
+add_executable(c5_planner_bridge_node src/c5_planner_bridge_node.cpp)
+add_dependencies(c5_planner_bridge_node ${c5_autonomous_exploration_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(c5_planner_bridge_node c5_planner_bridge_core ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+if(CATKIN_ENABLE_TESTING)
+  add_executable(c5_planner_bridge_core_test test/c5_planner_bridge_core_test.cpp)
+  target_link_libraries(c5_planner_bridge_core_test c5_planner_bridge_core)
+  add_test(NAME c5_planner_bridge_core_test COMMAND c5_planner_bridge_core_test)
+endif()
 # add_dependencies(traj_server ${${PROJECT_NAME}_EXPORTED_TARGETS})
 # add_executable(monitor_node src/monitor_node.cpp)
 # target_link_libraries(monitor_node ${catkin_LIBRARIES})

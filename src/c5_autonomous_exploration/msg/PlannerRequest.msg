@@ -1,0 +1,9 @@
+uint8 EXPLORE=0
+uint8 RETURN_HOME=1
+uint8 HOLD=2
+Header header
+uint32 sequence
+uint8 mode
+geometry_msgs/PoseStamped goal
+float64 clearance
+float64 timeout

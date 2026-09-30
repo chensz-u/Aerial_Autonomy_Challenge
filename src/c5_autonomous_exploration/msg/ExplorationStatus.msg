@@ -1,0 +1,16 @@
+uint8 EXPLORE=0
+uint8 HOLD=1
+uint8 RETURN=2
+uint8 LAND=3
+Header header
+uint8 state
+uint8 event
+bool pose_valid
+bool link_available
+float64 battery_fraction
+float64 lio_confidence
+float64 vio_confidence
+float64 fused_confidence
+geometry_msgs/Point current_position
+geometry_msgs/Point commanded_goal
+bool has_commanded_goal
