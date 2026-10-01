@@ -9,17 +9,24 @@
 
 ## 下载仿真器与示例代码
 #### 示例代码下载
->+ git clone https://github.com/DifferentialRobotics/Aerial_Autonomy_Challenge.git
+>+ `git clone https://github.com/chensz-u/Aerial_Autonomy_Challenge.git`
+>+ 默认 `main` 分支已包含 C5 自主探索代码，不需要切换到其他分支。
 #### 仿真器下载
->+ https://pan.baidu.com/s/1rCioYJQSKhKqadkiC0CGdA?pwd=hs5p 
-解压到Aerial_Autonomy_Challenge/src
+>+ https://pan.baidu.com/s/1rCioYJQSKhKqadkiC0CGdA?pwd=hs5p
+>+ 将下载的仿真器解压到 `Aerial_Autonomy_Challenge/src`，确认文件存在：`src/AerialAutonomyChallenge-Simulator/AerialAutonomyChallenge-Simulator.x86_64`
 ## 快速启动
-#### 编译并启动
->+ `cd Aerial_Autonomy_Challenge`  
->+ `git checkout 2026robotics`
->+ `catkin_make -j1`
->+ `chmod +x src/AerialAutonomyChallenge-Simulator/AerialAutonomyChallenge-Simulator.x86_64`  
->+ `./sh_files/run_unity.sh`
+#### 环境要求
+>+ Ubuntu 20.04 + ROS Noetic；仿真器是单独下载的 Unity 程序，不包含在 GitHub 仓库中。
+#### 编译
+>+ `cd Aerial_Autonomy_Challenge`
+>+ `catkin_make -j1 --pkg ros_tcp_endpoint diff_planner c5_autonomous_exploration`
+>+ `chmod +x src/AerialAutonomyChallenge-Simulator/AerialAutonomyChallenge-Simulator.x86_64`
+#### 启动仿真与 C5 自主探索
+>+ 终端一（从仓库父目录执行）：`cd Aerial_Autonomy_Challenge && ./sh_files/run_unity.sh`（启动 Unity、ROS 仿真与 Diff-Planner，保持运行）
+>+ 终端二（另开终端，从仓库父目录执行）：`cd Aerial_Autonomy_Challenge && source devel/setup.bash && roslaunch diff_planner c5_autonomy_bridge.launch`
+>+ 检查节点：`rosnode list | grep -E 'c5_autonomous_exploration|c5_planner_bridge|drone_0_diff_planner_node'`
+
+>+ 终端二应能看到 `/c5_autonomous_exploration` 和 `/c5_planner_bridge`；若没有地图或里程计数据，请先确认仿真器和 ROS 仿真已正常启动。
 
 ## 仿真器界面交互  
 >+ 鼠标左键控制镜头旋转
