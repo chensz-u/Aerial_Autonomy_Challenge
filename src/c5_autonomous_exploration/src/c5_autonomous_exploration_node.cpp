@@ -48,13 +48,23 @@ class C5AutonomousExplorationNode {
         cloud_max_range_(40.0),
         cloud_leaf_size_(0.4),
         cloud_is_world_frame_(false),
+        planner_map_ready_(false),
+        planner_map_clearance_(0.15),
+        require_clear_path_(true),
+        planner_clearance_(0.50),
+        planner_waypoint_distance_(0.60),
+        goal_min_distance_(1.0),
         frame_id_("map"),
         have_home_(false),
         last_stop_state_(false),
         last_commanded_goal_(),
         home_position_(),
+        exploration_destination_(),
+        exploration_destination_valid_(false),
         task_interrupted_(false),
         planner_failures_(0),
+        planner_feedback_seen_(false),
+        planner_goal_active_(false),
         planner_request_sequence_(0),
         orientation_x_(0.0),
         orientation_y_(0.0),
@@ -63,6 +73,11 @@ class C5AutonomousExplorationNode {
     private_node_.param("cloud_max_range", cloud_max_range_, cloud_max_range_);
     private_node_.param("cloud_leaf_size", cloud_leaf_size_, cloud_leaf_size_);
     private_node_.param("cloud_is_world_frame", cloud_is_world_frame_, cloud_is_world_frame_);
+    private_node_.param("planner_map_clearance", planner_map_clearance_, planner_map_clearance_);
+    private_node_.param("require_clear_path", require_clear_path_, require_clear_path_);
+    private_node_.param("planner_clearance", planner_clearance_, planner_clearance_);
+    private_node_.param("planner_waypoint_distance", planner_waypoint_distance_, planner_waypoint_distance_);
+    private_node_.param("goal_min_distance", goal_min_distance_, goal_min_distance_);
     private_node_.param<std::string>("frame_id", frame_id_, frame_id_);
     double home_x = 0.0;
     double home_y = 0.0;
@@ -76,6 +91,7 @@ class C5AutonomousExplorationNode {
 
     std::string odom_topic = "/quad_0/lidar_slam/odom";
     std::string cloud_topic = "/drone_0_pcl_render_node/cloud";
+    std::string planner_map_topic = "/drone_0_diff_planner_node/grid_map/occupancy_inflate_full";
     std::string imu_topic = "/mavros/imu/data";
     std::string image_topic = "/c5/camera/image_raw";
     std::string vio_feature_topic = "/c5/vio_features";
@@ -91,6 +107,7 @@ class C5AutonomousExplorationNode {
     std::string stop_topic = "/mandatory_stop_to_planner";
     private_node_.param<std::string>("odom_topic", odom_topic, odom_topic);
     private_node_.param<std::string>("cloud_topic", cloud_topic, cloud_topic);
+    private_node_.param<std::string>("planner_map_topic", planner_map_topic, planner_map_topic);
     private_node_.param<std::string>("imu_topic", imu_topic, imu_topic);
     private_node_.param<std::string>("image_topic", image_topic, image_topic);
     private_node_.param<std::string>("vio_feature_topic", vio_feature_topic, vio_feature_topic);
@@ -107,6 +124,7 @@ class C5AutonomousExplorationNode {
 
     odometry_sub_ = node_.subscribe(odom_topic, 20, &C5AutonomousExplorationNode::odometryCallback, this);
     cloud_sub_ = node_.subscribe(cloud_topic, 2, &C5AutonomousExplorationNode::cloudCallback, this);
+    planner_map_sub_ = node_.subscribe(planner_map_topic, 1, &C5AutonomousExplorationNode::plannerMapCallback, this);
     imu_sub_ = node_.subscribe(imu_topic, 50, &C5AutonomousExplorationNode::imuCallback, this);
     image_sub_ = node_.subscribe(image_topic, 2, &C5AutonomousExplorationNode::imageCallback, this);
     vio_feature_sub_ = node_.subscribe(vio_feature_topic, 20, &C5AutonomousExplorationNode::vioFeatureCallback, this);
@@ -132,6 +150,10 @@ class C5AutonomousExplorationNode {
     validator.requirePositive("cloud_max_range", cloud_max_range_);
     validator.requirePositive("cloud_leaf_size", cloud_leaf_size_);
     validator.requirePositive("planning_rate", planning_rate);
+    validator.requirePositive("planner_clearance", planner_clearance_);
+    validator.requirePositive("planner_map_clearance", planner_map_clearance_);
+    validator.requirePositive("planner_waypoint_distance", planner_waypoint_distance_);
+    validator.requirePositive("goal_min_distance", goal_min_distance_);
     if (!validator.valid()) ROS_FATAL("Invalid c5_autonomous_exploration parameters");
     timer_ = node_.createTimer(ros::Duration(1.0 / std::max(0.1, planning_rate)),
                                &C5AutonomousExplorationNode::timerCallback, this);
@@ -149,6 +171,8 @@ class C5AutonomousExplorationNode {
     private_node_.param("distance_weight", config.distance_weight, config.distance_weight);
     private_node_.param("home_distance_weight", config.home_distance_weight, config.home_distance_weight);
     private_node_.param("goal_min_distance", config.goal_min_distance, config.goal_min_distance);
+    private_node_.param("min_goal_altitude", config.min_goal_altitude, config.min_goal_altitude);
+    private_node_.param("max_goal_altitude", config.max_goal_altitude, config.max_goal_altitude);
     private_node_.param("nbs_beam_width", config.nbs_beam_width, config.nbs_beam_width);
     private_node_.param("nbs_search_depth", config.nbs_search_depth, config.nbs_search_depth);
     private_node_.param("rrag_connection_distance", config.rrag_connection_distance, config.rrag_connection_distance);
@@ -223,6 +247,25 @@ class C5AutonomousExplorationNode {
     }
   }
 
+  void plannerMapCallback(const sensor_msgs::PointCloud2ConstPtr& message) {
+    if (message->header.frame_id != "world") {
+      ROS_WARN_THROTTLE(5.0, "C5 is waiting for the planner occupancy map in the world frame");
+      planner_map_ready_ = false;
+      return;
+    }
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+    pcl::fromROSMsg(*message, cloud);
+    std::vector<Vec3> occupied_points;
+    occupied_points.reserve(cloud.size());
+    for (const pcl::PointXYZ& point : cloud.points) {
+      if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
+        occupied_points.push_back(Vec3(point.x, point.y, point.z));
+      }
+    }
+    planner_map_obstacles_.swap(occupied_points);
+    planner_map_ready_ = true;
+  }
+
   void imuCallback(const sensor_msgs::ImuConstPtr& message) {
     const Vec3 acceleration(message->linear_acceleration.x, message->linear_acceleration.y,
                             message->linear_acceleration.z);
@@ -260,8 +303,11 @@ class C5AutonomousExplorationNode {
 
   void positionCommandCallback(const quadrotor_msgs::PositionCommandConstPtr& message) {
     if (message->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY) {
+      planner_feedback_seen_ = true;
       planner_failures_ = 0;
       explorer_.clearPlannerFailures();
+    } else if (!planner_feedback_seen_) {
+      return;
     } else if (message->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTROY_STATUS_ABORT ||
                message->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_ILLEGAL_START ||
                message->trajectory_flag == quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_ILLEGAL_FINAL ||
@@ -300,8 +346,17 @@ class C5AutonomousExplorationNode {
   }
 
   void plannerFeedbackCallback(const PlannerFeedbackConstPtr& message) {
-    if (message->state == PlannerFeedback::ACCEPTED || message->state == PlannerFeedback::ACTIVE ||
-        message->state == PlannerFeedback::ARRIVED) {
+    if (message->state == PlannerFeedback::ACCEPTED || message->state == PlannerFeedback::ACTIVE) {
+      planner_feedback_seen_ = true;
+      planner_goal_active_ = true;
+      planner_failures_ = 0;
+      explorer_.clearPlannerFailures();
+      return;
+    }
+    if (message->state == PlannerFeedback::ARRIVED) {
+      planner_feedback_seen_ = true;
+      planner_goal_active_ = false;
+      planner_failures_ = 0;
       explorer_.clearPlannerFailures();
       return;
     }
@@ -309,6 +364,8 @@ class C5AutonomousExplorationNode {
         message->state == PlannerFeedback::COMMAND_TIMEOUT || message->state == PlannerFeedback::GOAL_TIMEOUT ||
         message->state == PlannerFeedback::HEARTBEAT_TIMEOUT || message->state == PlannerFeedback::MAP_STALE ||
         message->state == PlannerFeedback::PLANNER_REJECTED || message->state == PlannerFeedback::STOPPED) {
+      planner_feedback_seen_ = true;
+      planner_goal_active_ = false;
       ++planner_failures_;
       explorer_.reportPlannerFailure();
     }
@@ -336,6 +393,7 @@ class C5AutonomousExplorationNode {
   void timerCallback(const ros::TimerEvent&) {
     const double now = ros::Time::now().toSec();
     rolling_map_.decay(now);
+    if (!explorer_.status().pose_valid) return;
     ExplorationDecision decision = explorer_.planNextGoal();
     const ExplorerStatus status = explorer_.status();
     const MissionState mission_state = mission_executor_.update(MissionInput{
@@ -358,6 +416,9 @@ class C5AutonomousExplorationNode {
   void publishDecision(const ExplorationDecision& decision, MissionState mission_state, double stamp) {
     const bool stop_required = decision.mode == SafetyState::kHold || mission_state == MissionState::kRelocalize || mission_state == MissionState::kLocked;
     if (stop_required && !last_stop_state_) {
+      ROS_WARN_STREAM("C5 requests mandatory stop: mode=" << static_cast<int>(decision.mode)
+                      << " mission=" << static_cast<int>(mission_state)
+                      << " planner_failures=" << planner_failures_);
       std_msgs::Empty message;
       stop_pub_.publish(message);
     }
@@ -375,20 +436,156 @@ class C5AutonomousExplorationNode {
       return;
     }
     if (!decision.has_goal) return;
-    const StateEstimate estimate = state_estimator_.estimate();
-    MpcState state;
-    state.position = estimate.position;
-    state.velocity = estimate.velocity;
-    std::vector<Vec3> obstacles = rolling_map_.occupiedPoints();
-    const std::vector<Vec3> dynamic_obstacles = dynamic_filter_.dynamicPoints();
-    obstacles.insert(obstacles.end(), dynamic_obstacles.begin(), dynamic_obstacles.end());
-    if (!rolling_map_.segmentClear(state.position, decision.goal, 0.6)) {
+    if ((decision.mode == SafetyState::kExplore || decision.mode == SafetyState::kReturn) &&
+        planner_goal_active_) return;
+    const NavigationState estimate = eskf_.state();
+    const std::vector<Vec3> bridge_map_obstacles = explorer_.occupiedVoxels();
+    const auto clearOfPublishedMaps = [&](const Vec3& point) {
+      if (!planner_map_ready_ || !pointHasClearance(planner_map_obstacles_, point, planner_map_clearance_)) {
+        return false;
+      }
+      for (std::vector<Vec3>::const_iterator it = bridge_map_obstacles.begin();
+           it != bridge_map_obstacles.end(); ++it) {
+        const double dx = point.x - it->x;
+        const double dy = point.y - it->y;
+        const double dz = point.z - it->z;
+        if (std::sqrt(dx * dx + dy * dy + dz * dz) < planner_clearance_) return false;
+      }
+      return true;
+    };
+    const std::vector<Vec3> frontiers = explorer_.frontiers();
+    Vec3 destination = decision.goal;
+    if (decision.mode == SafetyState::kExplore) {
+      if (exploration_destination_valid_) {
+        const double dx = exploration_destination_.x - estimate.position.x;
+        const double dy = exploration_destination_.y - estimate.position.y;
+        const double dz = exploration_destination_.z - estimate.position.z;
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance <= 0.35 || !clearOfPublishedMaps(exploration_destination_) ||
+            rolling_map_.distanceToObstacle(exploration_destination_) < planner_clearance_) {
+          exploration_destination_valid_ = false;
+        }
+      }
+      if (!exploration_destination_valid_) {
+        std::vector<Vec3> global_candidates;
+        for (std::vector<Vec3>::const_iterator it = frontiers.begin(); it != frontiers.end(); ++it) {
+          const double dx = it->x - estimate.position.x;
+          const double dy = it->y - estimate.position.y;
+          const double dz = it->z - estimate.position.z;
+          if (dx * dx + dy * dy + dz * dz >= goal_min_distance_ * goal_min_distance_ &&
+              clearOfPublishedMaps(*it) && rolling_map_.distanceToObstacle(*it) >= planner_clearance_) {
+            global_candidates.push_back(*it);
+          }
+        }
+        if (!rolling_map_.nearestClearPoint(global_candidates, decision.goal, planner_clearance_,
+                                            &exploration_destination_)) {
+          ROS_WARN_THROTTLE(2.0, "C5 has no distant frontier with sufficient clearance in both planner maps");
+          return;
+        }
+        exploration_destination_valid_ = true;
+      }
+      destination = exploration_destination_;
+    } else {
+      exploration_destination_valid_ = false;
+    }
+
+    const double destination_dx = destination.x - estimate.position.x;
+    const double destination_dy = destination.y - estimate.position.y;
+    const double destination_dz = destination.z - estimate.position.z;
+    const double destination_distance = std::sqrt(destination_dx * destination_dx +
+                                                   destination_dy * destination_dy +
+                                                   destination_dz * destination_dz);
+    Vec3 safe_goal = destination;
+    if (destination_distance > planner_waypoint_distance_ ||
+        std::abs(destination.z - estimate.position.z) > 0.35 ||
+        !clearOfPublishedMaps(destination) ||
+        rolling_map_.distanceToObstacle(destination) < planner_clearance_) {
+      bool found_waypoint = false;
+      double best_progress = -std::numeric_limits<double>::infinity();
+      double best_remaining_distance = std::numeric_limits<double>::infinity();
+      const double direction_x = destination_dx / destination_distance;
+      const double direction_y = destination_dy / destination_distance;
+      const double direction_z = destination_dz / destination_distance;
+      for (std::vector<Vec3>::const_iterator it = frontiers.begin(); it != frontiers.end(); ++it) {
+        const double dx = it->x - estimate.position.x;
+        const double dy = it->y - estimate.position.y;
+        const double dz = it->z - estimate.position.z;
+        const double distance_squared = dx * dx + dy * dy + dz * dz;
+        if (distance_squared < 0.45 * 0.45 ||
+            distance_squared > planner_waypoint_distance_ * planner_waypoint_distance_ ||
+            std::abs(dz) > 0.35 || !clearOfPublishedMaps(*it) ||
+            rolling_map_.distanceToObstacle(*it) < planner_clearance_) continue;
+        const double progress = dx * direction_x + dy * direction_y + dz * direction_z;
+        const double remaining_x = destination.x - it->x;
+        const double remaining_y = destination.y - it->y;
+        const double remaining_z = destination.z - it->z;
+        const double remaining_distance = std::sqrt(remaining_x * remaining_x +
+                                                    remaining_y * remaining_y +
+                                                    remaining_z * remaining_z);
+        if (!found_waypoint || progress > best_progress + 1e-6 ||
+            (std::abs(progress - best_progress) <= 1e-6 &&
+             remaining_distance < best_remaining_distance)) {
+          safe_goal = *it;
+          best_progress = progress;
+          best_remaining_distance = remaining_distance;
+          found_waypoint = true;
+        }
+      }
+      if (!found_waypoint) {
+        const double horizontal_step = 0.50;
+        const double vertical_step = 0.25;
+        for (int ix = -1; ix <= 1; ++ix) {
+          for (int iy = -1; iy <= 1; ++iy) {
+            for (int iz = -1; iz <= 1; ++iz) {
+              if (ix == 0 && iy == 0 && iz == 0) continue;
+              const Vec3 candidate(estimate.position.x + ix * horizontal_step,
+                                   estimate.position.y + iy * horizontal_step,
+                                   estimate.position.z + iz * vertical_step);
+              const double dx = candidate.x - estimate.position.x;
+              const double dy = candidate.y - estimate.position.y;
+              const double dz = candidate.z - estimate.position.z;
+              const double distance_squared = dx * dx + dy * dy + dz * dz;
+              if (distance_squared < 0.45 * 0.45 ||
+                  distance_squared > planner_waypoint_distance_ * planner_waypoint_distance_ ||
+                  !clearOfPublishedMaps(candidate) ||
+                  rolling_map_.distanceToObstacle(candidate) < planner_clearance_) continue;
+              const double progress = dx * direction_x + dy * direction_y + dz * direction_z;
+              const double remaining_x = destination.x - candidate.x;
+              const double remaining_y = destination.y - candidate.y;
+              const double remaining_z = destination.z - candidate.z;
+              const double remaining_distance = std::sqrt(remaining_x * remaining_x +
+                                                          remaining_y * remaining_y +
+                                                          remaining_z * remaining_z);
+              if (!found_waypoint || progress > best_progress + 1e-6 ||
+                  (std::abs(progress - best_progress) <= 1e-6 &&
+                   remaining_distance < best_remaining_distance)) {
+                safe_goal = candidate;
+                best_progress = progress;
+                best_remaining_distance = remaining_distance;
+                found_waypoint = true;
+              }
+            }
+          }
+        }
+      }
+      if (!found_waypoint) {
+        ROS_WARN_THROTTLE(2.0, "C5 has no short, clear waypoint in either planner map; waiting for map update");
+        return;
+      }
+    }
+    ROS_INFO_STREAM_THROTTLE(2.0, "C5 navigation destination=(" << destination.x << ", " << destination.y << ", "
+                             << destination.z << ") waypoint=(" << safe_goal.x << ", " << safe_goal.y << ", "
+                             << safe_goal.z << ") remaining=" << destination_distance);
+    if (require_clear_path_ && !rolling_map_.segmentClear(estimate.position, safe_goal, planner_clearance_)) {
       ++planner_failures_;
       explorer_.reportPlannerFailure();
       return;
     }
-    const MpcCommand command = mpc_controller_.solve(state, decision.goal, obstacles);
-    last_commanded_goal_ = command.predicted_position;
+    if (rolling_map_.distanceToObstacle(safe_goal) < planner_clearance_ || !clearOfPublishedMaps(safe_goal)) {
+      ROS_WARN_THROTTLE(2.0, "C5 is withholding a planner request because its endpoint lacks clearance in a planner map");
+      return;
+    }
+    last_commanded_goal_ = safe_goal;
     PlannerRequest request;
     request.header.stamp = ros::Time(stamp);
     request.header.frame_id = frame_id_;
@@ -399,7 +596,7 @@ class C5AutonomousExplorationNode {
     request.goal.pose.position.y = last_commanded_goal_.y;
     request.goal.pose.position.z = last_commanded_goal_.z;
     request.goal.pose.orientation.w = 1.0;
-    request.clearance = 0.6;
+    request.clearance = planner_clearance_;
     request.timeout = 12.0;
     planner_request_pub_.publish(request);
   }
@@ -476,6 +673,7 @@ class C5AutonomousExplorationNode {
   AutonomousExplorer explorer_;
   ros::Subscriber odometry_sub_;
   ros::Subscriber cloud_sub_;
+  ros::Subscriber planner_map_sub_;
   ros::Subscriber imu_sub_;
   ros::Subscriber image_sub_;
   ros::Subscriber vio_feature_sub_;
@@ -507,13 +705,24 @@ class C5AutonomousExplorationNode {
   double cloud_max_range_;
   double cloud_leaf_size_;
   bool cloud_is_world_frame_;
+  bool planner_map_ready_;
+  double planner_map_clearance_;
+  std::vector<Vec3> planner_map_obstacles_;
+  bool require_clear_path_;
+  double planner_clearance_;
+  double planner_waypoint_distance_;
+  double goal_min_distance_;
   std::string frame_id_;
   bool have_home_;
   bool last_stop_state_;
   Vec3 last_commanded_goal_;
   Vec3 home_position_;
+  Vec3 exploration_destination_;
+  bool exploration_destination_valid_;
   bool task_interrupted_;
   int planner_failures_;
+  bool planner_feedback_seen_;
+  bool planner_goal_active_;
   std::uint32_t planner_request_sequence_;
   ImageTensor latest_image_;
   std::vector<Vec3> latest_static_points_;

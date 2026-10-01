@@ -40,6 +40,8 @@ class MultiModalStateEstimator {
  private:
   EstimatorConfig config_;
   StateEstimate estimate_;
+  int consecutive_lio_rejections_;
+  Vec3 last_rejected_lio_position_;
   bool initialized_;
 
   static double clamp(double value, double minimum, double maximum);

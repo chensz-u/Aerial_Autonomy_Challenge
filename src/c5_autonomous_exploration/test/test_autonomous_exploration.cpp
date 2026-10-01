@@ -23,19 +23,59 @@ using c5_autonomous_exploration::SafetyState;
 using c5_autonomous_exploration::Vec3;
 
 int main() {
+  c5_autonomous_exploration::ErrorStateKalmanFilter recovering_eskf;
+  c5_autonomous_exploration::NavigationState recovering_navigation;
+  recovering_navigation.gravity = Vec3(0.0, 0.0, 0.0);
+  recovering_eskf.reset(recovering_navigation, 0.0);
+  assert(!recovering_eskf.correctPosition(Vec3(2.0, 0.0, 0.0), 0.01));
+  assert(!recovering_eskf.correctPosition(Vec3(2.02, 0.0, 0.0), 0.01));
+  assert(recovering_eskf.correctPosition(Vec3(2.01, 0.0, 0.0), 0.01));
+  assert(std::abs(recovering_eskf.state().position.x - 2.01) < 1e-9);
+
+  c5_autonomous_exploration::ErrorStateKalmanFilter velocity_recovery_eskf;
+  c5_autonomous_exploration::NavigationState velocity_recovery_state;
+  velocity_recovery_state.gravity = Vec3(0.0, 0.0, 0.0);
+  velocity_recovery_eskf.reset(velocity_recovery_state, 0.0);
+  c5_autonomous_exploration::ImuSample drift_sample;
+  drift_sample.acceleration = Vec3(10.0, 0.0, 0.0);
+  drift_sample.angular_velocity = Vec3(0.0, 0.0, 0.0);
+  drift_sample.stamp = 1.0;
+  velocity_recovery_eskf.propagate(drift_sample);
+  assert(!velocity_recovery_eskf.correctVelocity(Vec3(0.0, 0.0, 0.0), 0.01));
+  assert(!velocity_recovery_eskf.correctVelocity(Vec3(0.01, 0.0, 0.0), 0.01));
+  assert(velocity_recovery_eskf.correctVelocity(Vec3(0.0, 0.0, 0.0), 0.01));
+  assert(std::abs(velocity_recovery_eskf.state().velocity.x) < 1e-9);
   ExplorerConfig config;
   config.map_resolution = 1.0;
   config.min_clearance = 0.8;
   config.return_battery_fraction = 0.25;
   config.link_loss_continue_seconds = 30.0;
   config.minimum_confidence = 0.45;
+  config.max_planner_failures = 1;
+
+  ExplorerConfig altitude_config = config;
+  altitude_config.min_goal_altitude = 1.0;
+  altitude_config.max_goal_altitude = 1.75;
+  AutonomousExplorer altitude_explorer(altitude_config);
+  altitude_explorer.setHome(Vec3(0.0, 0.0, 1.0));
+  altitude_explorer.updatePose(Vec3(0.0, 0.0, 1.0), 0.0);
+  altitude_explorer.updateBattery(0.8);
+  altitude_explorer.updateLink(true, 0.0);
+  altitude_explorer.updateEstimator(0.0, 0.0, 1.0, 1.0);
+  altitude_explorer.setVoxel(Vec3(0.0, 0.0, 1.0), CellState::kFree);
+  altitude_explorer.setVoxel(Vec3(1.0, 0.0, 1.0), CellState::kFree);
+  altitude_explorer.setVoxel(Vec3(2.0, 0.0, 1.0), CellState::kFree);
+  altitude_explorer.setVoxel(Vec3(0.0, 0.0, 2.0), CellState::kFree);
+  const auto altitude_decision = altitude_explorer.planNextGoal();
+  assert(altitude_decision.has_goal);
+  assert(altitude_decision.goal.z >= 1.0 && altitude_decision.goal.z <= 1.75);
 
   AutonomousExplorer explorer(config);
   explorer.setHome(Vec3(0.0, 0.0, 1.0));
   explorer.updatePose(Vec3(0.0, 0.0, 1.0), 0.0);
   explorer.updateBattery(0.8);
   explorer.updateLink(true, 0.0);
-  explorer.updateEstimator(0.08, 0.30, 0.10, 0.90);
+  explorer.updateEstimator(0.08, 0.30, 1.0, 1.0);
 
   explorer.integrateRay(Vec3(0.0, 0.0, 1.0), Vec3(3.0, 0.0, 1.0));
   assert(!explorer.occupiedVoxels().empty());
@@ -93,9 +133,16 @@ int main() {
   estimator.correctLio(Vec3(0.5, 0.0, 0.0), 0.1);
   assert(estimator.estimate().position.x > 0.0);
 
+  c5_autonomous_exploration::MultiModalStateEstimator recovering_estimator;
+  recovering_estimator.reset(Vec3(0.0, 0.0, 0.0), 0.0);
+  assert(!recovering_estimator.correctLio(Vec3(5.0, 0.0, 0.0), 0.05));
+  assert(!recovering_estimator.correctLio(Vec3(5.02, 0.0, 0.0), 0.05));
+  assert(recovering_estimator.correctLio(Vec3(5.01, 0.0, 0.0), 0.05));
+  assert(std::abs(recovering_estimator.estimate().position.x - 5.01) < 1e-9);
+
   c5_autonomous_exploration::DynamicSceneFilter dynamic_filter;
   dynamic_filter.update(std::vector<Vec3>{Vec3(1.0, 0.0, 0.0)}, 0.0);
-  dynamic_filter.update(std::vector<Vec3>{Vec3(3.0, 0.0, 0.0)}, 0.1);
+  dynamic_filter.update(std::vector<Vec3>{Vec3(1.3, 0.0, 0.0)}, 0.1);
   assert(!dynamic_filter.dynamicPoints().empty());
 
   c5_autonomous_exploration::ModelPredictiveController controller;
@@ -126,6 +173,7 @@ int main() {
   assert(eskf.correctPosition(Vec3(0.6, 0.0, 0.0), 0.05));
   assert(!eskf.correctPosition(Vec3(100.0, 0.0, 0.0), 0.05));
 
+
   c5_autonomous_exploration::VioFrontend vio;
   c5_autonomous_exploration::FeatureFrame feature_frame;
   feature_frame.stamp = 0.0;
@@ -144,7 +192,20 @@ int main() {
   rolling_map.integrateRay(Vec3(0.0, 0.0, 0.0), Vec3(2.0, 0.0, 0.0), 0.0);
   assert(rolling_map.occupied(Vec3(2.0, 0.0, 0.0)));
   assert(rolling_map.distanceToObstacle(Vec3(1.0, 0.0, 0.0)) >= 0.0);
-  assert(!rolling_map.segmentClear(Vec3(0.0, 0.0, 0.0), Vec3(2.0, 0.0, 0.0), 0.1));
+  assert(!rolling_map.segmentClear(Vec3(0.0, 0.0, 0.0), Vec3(2.0, 0.0, 0.0), 0.3));
+  Vec3 clear_frontier;
+  const std::vector<Vec3> frontier_candidates{Vec3(2.0, 0.0, 0.0), Vec3(1.75, 0.0, 0.0), Vec3(2.5, 0.0, 0.0)};
+  assert(rolling_map.nearestClearPoint(frontier_candidates, Vec3(1.9, 0.0, 0.0), 0.3, &clear_frontier));
+  assert(std::abs(clear_frontier.x - 1.75) < 1e-9);
+  assert(!rolling_map.nearestClearPoint(std::vector<Vec3>{Vec3(2.0, 0.0, 0.0)},
+                                       Vec3(2.0, 0.0, 0.0), 0.3, &clear_frontier));
+
+  const std::vector<Vec3> planner_inflated_occupied{Vec3(3.65, -0.85, 1.15)};
+  assert(!c5_autonomous_exploration::pointHasClearance(
+      planner_inflated_occupied, Vec3(3.625, -0.875, 1.125), 0.10));
+  assert(c5_autonomous_exploration::pointHasClearance(
+      planner_inflated_occupied, Vec3(3.125, -1.375, 0.875), 0.10));
+
   rolling_map.decay(20.0);
   assert(!rolling_map.occupied(Vec3(2.0, 0.0, 0.0)));
 

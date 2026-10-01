@@ -44,7 +44,9 @@ EskfConfig::EskfConfig()
       acceleration_bias_noise(0.002), gravity_noise(0.0001), nis_limit(11.345), covariance_floor(1e-8) {}
 
 ErrorStateKalmanFilter::ErrorStateKalmanFilter(const EskfConfig& config)
-    : config_(config), last_nis_(0.0), initialized_(false) {
+    : config_(config), last_nis_(0.0), consecutive_position_rejections_(0),
+      last_rejected_position_(0.0, 0.0, 0.0), consecutive_velocity_rejections_(0),
+      last_rejected_velocity_(0.0, 0.0, 0.0), initialized_(false) {
   NavigationState initial;
   initial.gravity = Vec3(0.0, 0.0, -9.81);
   reset(initial, 0.0);
@@ -57,6 +59,8 @@ void ErrorStateKalmanFilter::reset(const NavigationState& state, double stamp) {
   state_.covariance.fill(0.0);
   for (int index = 0; index < 18; ++index) covariance(state_.covariance, index, index) = 0.05;
   last_nis_ = 0.0;
+  consecutive_position_rejections_ = 0;
+  consecutive_velocity_rejections_ = 0;
   initialized_ = true;
 }
 
@@ -119,14 +123,52 @@ bool ErrorStateKalmanFilter::correctPosition(const Vec3& position, double varian
   if (variance <= 0.0) return false;
   correctVector(Vec3(position.x - state_.position.x, position.y - state_.position.y,
                      position.z - state_.position.z), 0, variance);
-  return last_nis_ <= config_.nis_limit;
+  if (last_nis_ <= config_.nis_limit) {
+    consecutive_position_rejections_ = 0;
+    return true;
+  }
+
+  const double dx = position.x - last_rejected_position_.x;
+  const double dy = position.y - last_rejected_position_.y;
+  const double dz = position.z - last_rejected_position_.z;
+  if (consecutive_position_rejections_ > 0 && dx * dx + dy * dy + dz * dz <= 0.25 * 0.25) {
+    ++consecutive_position_rejections_;
+  } else {
+    consecutive_position_rejections_ = 1;
+  }
+  last_rejected_position_ = position;
+  if (consecutive_position_rejections_ < 3) return false;
+
+  NavigationState recovered = state_;
+  recovered.position = position;
+  reset(recovered, state_.stamp);
+  return true;
 }
 
 bool ErrorStateKalmanFilter::correctVelocity(const Vec3& velocity, double variance) {
   if (variance <= 0.0) return false;
   correctVector(Vec3(velocity.x - state_.velocity.x, velocity.y - state_.velocity.y,
                      velocity.z - state_.velocity.z), 3, variance);
-  return last_nis_ <= config_.nis_limit;
+  if (last_nis_ <= config_.nis_limit) {
+    consecutive_velocity_rejections_ = 0;
+    return true;
+  }
+
+  const double dx = velocity.x - last_rejected_velocity_.x;
+  const double dy = velocity.y - last_rejected_velocity_.y;
+  const double dz = velocity.z - last_rejected_velocity_.z;
+  if (consecutive_velocity_rejections_ > 0 && dx * dx + dy * dy + dz * dz <= 0.25 * 0.25) {
+    ++consecutive_velocity_rejections_;
+  } else {
+    consecutive_velocity_rejections_ = 1;
+  }
+  last_rejected_velocity_ = velocity;
+  if (consecutive_velocity_rejections_ < 3) return false;
+
+  NavigationState recovered = state_;
+  recovered.velocity = velocity;
+  reset(recovered, state_.stamp);
+  return true;
 }
 
 void ErrorStateKalmanFilter::correctVector(const Vec3& residual, int covariance_offset, double variance) {

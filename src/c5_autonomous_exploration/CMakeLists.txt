@@ -73,4 +73,12 @@ if(CATKIN_ENABLE_TESTING)
   add_executable(c5_autonomous_exploration_core_test test/test_autonomous_exploration.cpp)
   target_link_libraries(c5_autonomous_exploration_core_test c5_autonomous_exploration_core ${catkin_LIBRARIES})
   add_test(NAME c5_autonomous_exploration_core_test COMMAND c5_autonomous_exploration_core_test)
+
+  add_executable(c5_dynamic_scene_filter_test test/test_dynamic_scene_filter.cpp)
+  target_link_libraries(c5_dynamic_scene_filter_test c5_autonomous_exploration_core )
+  add_test(NAME c5_dynamic_scene_filter_test COMMAND c5_dynamic_scene_filter_test)
+
+  add_executable(c5_frontier_performance_test test/test_frontier_performance.cpp)
+  target_link_libraries(c5_frontier_performance_test c5_autonomous_exploration_core ${catkin_LIBRARIES})
+  add_test(NAME c5_frontier_performance_test COMMAND c5_frontier_performance_test)
 endif()

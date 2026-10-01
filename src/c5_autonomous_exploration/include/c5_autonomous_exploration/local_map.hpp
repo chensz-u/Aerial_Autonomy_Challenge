@@ -24,6 +24,8 @@ struct MapDelta {
   std::vector<Vec3> occupied_removed;
 };
 
+bool pointHasClearance(const std::vector<Vec3>& occupied_points, const Vec3& candidate, double clearance);
+
 class RollingOccupancyMap {
  public:
   explicit RollingOccupancyMap(const LocalMapConfig& config = LocalMapConfig());
@@ -34,6 +36,8 @@ class RollingOccupancyMap {
   bool traversable(const Vec3& point) const;
   bool segmentClear(const Vec3& start, const Vec3& end, double clearance) const;
   double distanceToObstacle(const Vec3& point) const;
+  bool nearestClearPoint(const std::vector<Vec3>& candidates, const Vec3& target,
+                         double clearance, Vec3* selected) const;
   std::vector<Vec3> occupiedPoints() const;
   MapDelta takeDelta();
 

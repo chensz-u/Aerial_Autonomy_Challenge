@@ -30,6 +30,8 @@ ExplorerConfig::ExplorerConfig()
       distance_weight(0.25),
       home_distance_weight(0.1),
       goal_min_distance(1.0),
+      min_goal_altitude(0.0),
+      max_goal_altitude(10.0),
       nbs_beam_width(8),
       nbs_search_depth(3),
       rrag_connection_distance(5.0),
@@ -348,17 +350,28 @@ void AutonomousExplorer::updateEvidence(const VoxelIndex& index, double incremen
 }
 
 bool AutonomousExplorer::isFrontier(const VoxelIndex& index) const {
+  const double altitude = centerOf(index).z;
+  if (altitude < config_.min_goal_altitude || altitude > config_.max_goal_altitude) return false;
   return cellAt(index) == CellState::kFree && unknownNeighbors(index) > 0 && isSafe(index);
 }
 
 bool AutonomousExplorer::isSafe(const VoxelIndex& index) const {
-  const Vec3 center = centerOf(index);
-  for (std::map<VoxelIndex, double>::const_iterator it = voxels_.begin(); it != voxels_.end(); ++it) {
-    if (cellAt(it->first) == CellState::kOccupied && distance(center, centerOf(it->first)) < config_.min_clearance) return false;
+  const int radius = static_cast<int>(std::ceil(config_.min_clearance / config_.map_resolution));
+  const double clearance_squared = config_.min_clearance * config_.min_clearance;
+  for (int dx = -radius; dx <= radius; ++dx) {
+    for (int dy = -radius; dy <= radius; ++dy) {
+      for (int dz = -radius; dz <= radius; ++dz) {
+        const double x = static_cast<double>(dx) * config_.map_resolution;
+        const double y = static_cast<double>(dy) * config_.map_resolution;
+        const double z = static_cast<double>(dz) * config_.map_resolution;
+        if (x * x + y * y + z * z >= clearance_squared) continue;
+        const VoxelIndex neighbor = {index.x + dx, index.y + dy, index.z + dz};
+        if (cellAt(neighbor) == CellState::kOccupied) return false;
+      }
+    }
   }
   return true;
 }
-
 bool AutonomousExplorer::visibleFromPose(const VoxelIndex& index) const {
   if (!pose_valid_) return false;
   const Vec3 target = centerOf(index);
@@ -435,7 +448,9 @@ bool AutonomousExplorer::fallbackGoal(VoxelIndex* index) const {
   double best_score = -std::numeric_limits<double>::infinity();
   bool found = false;
   for (std::map<VoxelIndex, double>::const_iterator it = voxels_.begin(); it != voxels_.end(); ++it) {
-    if (cellAt(it->first) != CellState::kFree || !isSafe(it->first)) continue;
+    const double altitude = centerOf(it->first).z;
+    if (altitude < config_.min_goal_altitude || altitude > config_.max_goal_altitude ||
+        cellAt(it->first) != CellState::kFree || !isSafe(it->first)) continue;
     const double travel = distance(pose_, centerOf(it->first));
     if (travel < config_.goal_min_distance || travel > config_.fls_search_radius) continue;
     const double score = static_cast<double>(unknownNeighbors(it->first)) - config_.distance_weight * travel;

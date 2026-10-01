@@ -6,6 +6,18 @@
 
 namespace c5_autonomous_exploration {
 
+bool pointHasClearance(const std::vector<Vec3>& occupied_points, const Vec3& candidate, double clearance) {
+  if (!std::isfinite(clearance) || clearance < 0.0) return false;
+  const double clearance_squared = clearance * clearance;
+  for (const Vec3& point : occupied_points) {
+    const double dx = candidate.x - point.x;
+    const double dy = candidate.y - point.y;
+    const double dz = candidate.z - point.z;
+    if (dx * dx + dy * dy + dz * dz < clearance_squared) return false;
+  }
+  return true;
+}
+
 LocalMapConfig::LocalMapConfig()
     : resolution(0.25), window_radius(18.0), hit_log_odds(0.9), miss_log_odds(-0.6),
       occupied_threshold(0.0), evidence_limit(4.0), decay_seconds(12.0), inflation_radius(0.6) {}
@@ -62,6 +74,23 @@ double RollingOccupancyMap::distanceToObstacle(const Vec3& point) const {
     if (it->second.log_odds > config_.occupied_threshold) nearest = std::min(nearest, distance(point, centerOf(it->first)));
   }
   return nearest;
+}
+
+bool RollingOccupancyMap::nearestClearPoint(const std::vector<Vec3>& candidates, const Vec3& target,
+                                            double clearance, Vec3* selected) const {
+  if (selected == NULL || clearance < 0.0) return false;
+  bool found = false;
+  double best_distance = std::numeric_limits<double>::infinity();
+  for (std::vector<Vec3>::const_iterator it = candidates.begin(); it != candidates.end(); ++it) {
+    if (distanceToObstacle(*it) < clearance) continue;
+    const double candidate_distance = distance(*it, target);
+    if (!found || candidate_distance < best_distance) {
+      *selected = *it;
+      best_distance = candidate_distance;
+      found = true;
+    }
+  }
+  return found;
 }
 
 std::vector<Vec3> RollingOccupancyMap::occupiedPoints() const {

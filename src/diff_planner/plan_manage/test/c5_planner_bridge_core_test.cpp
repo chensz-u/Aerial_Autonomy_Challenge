@@ -51,5 +51,22 @@ int main() {
   assert(stopped.state == BridgeFeedbackState::kStopped);
   assert(!stopped.active);
 
+  const PlannerBridgeRequest restarted_request{1, PlannerRequestMode::kExplore, BridgePoint(4.0, 0.0, 1.0), 0.5, 5.0};
+  assert(bridge.submit(restarted_request, BridgePoint(0.0, 0.0, 1.0)).state == BridgeFeedbackState::kAccepted);
+  const PlannerBridgeRequest delayed_request{2, PlannerRequestMode::kExplore, BridgePoint(4.0, 0.0, 1.0), 0.5, 4.5};
+  assert(bridge.submit(delayed_request, BridgePoint(0.0, 0.0, 1.0)).state == BridgeFeedbackState::kRejectedStale);
+
+  PlannerBridgeConfig detour_config = config;
+  detour_config.require_clear_path = false;
+  C5PlannerBridgeCore detour_bridge(detour_config);
+  detour_bridge.updateMap(std::vector<BridgePoint>{BridgePoint(2.0, 0.0, 1.0)}, 0.0);
+  detour_bridge.updatePosition(BridgePoint(0.0, 0.0, 1.0), 0.0);
+  const PlannerBridgeRequest detour_request{1, PlannerRequestMode::kExplore, BridgePoint(4.0, 0.0, 1.0), 0.5, 0.0};
+  const auto detour_accepted = detour_bridge.submit(detour_request, BridgePoint(0.0, 0.0, 1.0));
+  assert(detour_accepted.state == BridgeFeedbackState::kAccepted);
+  assert(detour_bridge.markPlannerCommand(true, 0.1).active);
+  detour_bridge.updateMap(std::vector<BridgePoint>{BridgePoint(2.0, 0.0, 1.0), BridgePoint(4.0, 0.0, 1.0)}, 0.2);
+  assert(detour_bridge.feedback().state == BridgeFeedbackState::kRejectedMap);
+  assert(!detour_bridge.feedback().active);
   return 0;
 }

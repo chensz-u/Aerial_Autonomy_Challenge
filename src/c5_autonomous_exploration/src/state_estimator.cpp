@@ -10,7 +10,8 @@ EstimatorConfig::EstimatorConfig()
       lio_innovation_limit(4.0), vio_innovation_limit(6.0) {}
 
 MultiModalStateEstimator::MultiModalStateEstimator(const EstimatorConfig& config)
-    : config_(config), initialized_(false) {
+    : config_(config), estimate_(), consecutive_lio_rejections_(0),
+      last_rejected_lio_position_(0.0, 0.0, 0.0), initialized_(false) {
   reset(Vec3(), 0.0);
 }
 
@@ -23,6 +24,7 @@ void MultiModalStateEstimator::reset(const Vec3& position, double stamp) {
   estimate_.lio_confidence = 0.0;
   estimate_.vio_confidence = 0.0;
   estimate_.fused_confidence = 0.0;
+  consecutive_lio_rejections_ = 0;
   initialized_ = true;
 }
 
@@ -48,10 +50,35 @@ void MultiModalStateEstimator::propagate(const Vec3& acceleration, const Vec3&, 
 bool MultiModalStateEstimator::correctLio(const Vec3& position, double covariance) {
   const Vec3 innovation(position.x - estimate_.position.x, position.y - estimate_.position.y,
                         position.z - estimate_.position.z);
-  if (norm(innovation) > config_.lio_innovation_limit || covariance <= 0.0) {
+  if (covariance <= 0.0) {
+    consecutive_lio_rejections_ = 0;
     estimate_.lio_confidence *= 0.5;
     return false;
   }
+  if (norm(innovation) > config_.lio_innovation_limit) {
+    const double dx = position.x - last_rejected_lio_position_.x;
+    const double dy = position.y - last_rejected_lio_position_.y;
+    const double dz = position.z - last_rejected_lio_position_.z;
+    if (consecutive_lio_rejections_ > 0 && dx * dx + dy * dy + dz * dz <= 0.25 * 0.25) {
+      ++consecutive_lio_rejections_;
+    } else {
+      consecutive_lio_rejections_ = 1;
+    }
+    last_rejected_lio_position_ = position;
+    if (consecutive_lio_rejections_ < 3) {
+      estimate_.lio_confidence *= 0.5;
+      return false;
+    }
+    estimate_.position = position;
+    estimate_.position_covariance = clamp(std::max(covariance, config_.minimum_covariance),
+                                          config_.minimum_covariance, config_.maximum_covariance);
+    estimate_.lio_confidence = clamp(1.0 / (1.0 + covariance), 0.0, 1.0);
+    estimate_.fused_confidence = clamp(0.65 * estimate_.lio_confidence +
+                                       0.35 * estimate_.vio_confidence, 0.0, 1.0);
+    consecutive_lio_rejections_ = 0;
+    return true;
+  }
+  consecutive_lio_rejections_ = 0;
   const double gain = estimate_.position_covariance /
                       (estimate_.position_covariance + std::max(covariance, config_.minimum_covariance));
   estimate_.position.x += gain * innovation.x;

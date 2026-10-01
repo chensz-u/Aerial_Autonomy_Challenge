@@ -128,6 +128,7 @@ void GridMap::initMap(ros::NodeHandle &nh)
 
   map_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy", 10);
   map_inf_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate", 10);
+  map_inf_full_pub_ = node_.advertise<sensor_msgs::PointCloud2>("grid_map/occupancy_inflate_full", 1);
 
   md_.occ_need_update_ = false;
   md_.has_first_depth_ = false;
@@ -928,12 +929,14 @@ void GridMap::publishMap()
 
 void GridMap::publishMapInflate()
 {
-
-  if (map_inf_pub_.getNumSubscribers() <= 0)
+  const bool publish_front_map = map_inf_pub_.getNumSubscribers() > 0;
+  const bool publish_full_map = map_inf_full_pub_.getNumSubscribers() > 0;
+  if (!publish_front_map && !publish_full_map)
     return;
 
   Eigen::Vector3d heading = (md_.camera_r_m_ * md_.cam2body_.block<3, 3>(0, 0).transpose()).block<3, 1>(0, 0);
   pcl::PointCloud<pcl::PointXYZ> cloud;
+  pcl::PointCloud<pcl::PointXYZ> full_cloud;
   double lbz = mp_.enable_virtual_wall_ ? max(md_.ringbuffer_inf_lowbound3d_(2), mp_.virtual_ground_) : md_.ringbuffer_inf_lowbound3d_(2);
   double ubz = mp_.enable_virtual_wall_ ? min(md_.ringbuffer_inf_upbound3d_(2), mp_.virtual_ceil_) : md_.ringbuffer_inf_upbound3d_(2);
   if (md_.ringbuffer_inf_upbound3d_(0) - md_.ringbuffer_inf_lowbound3d_(0) > mp_.resolution_ &&
@@ -942,22 +945,39 @@ void GridMap::publishMapInflate()
       for (double yd = md_.ringbuffer_inf_lowbound3d_(1) + mp_.resolution_ / 2; yd < md_.ringbuffer_inf_upbound3d_(1); yd += mp_.resolution_)
         for (double zd = lbz + mp_.resolution_ / 2; zd < ubz; zd += mp_.resolution_)
         {
-          Eigen::Vector3d relative_dir = (Eigen::Vector3d(xd, yd, zd) - md_.camera_pos_);
-          if (heading.dot(relative_dir.normalized()) > 0.5)
+          if (md_.occupancy_buffer_inflate_[globalIdx2InfBufIdx(pos2GlobalIdx(Eigen::Vector3d(xd, yd, zd)))])
           {
-            if (md_.occupancy_buffer_inflate_[globalIdx2InfBufIdx(pos2GlobalIdx(Eigen::Vector3d(xd, yd, zd)))])
-              cloud.push_back(pcl::PointXYZ(xd, yd, zd));
+            if (publish_full_map)
+              full_cloud.push_back(pcl::PointXYZ(xd, yd, zd));
+            if (publish_front_map)
+            {
+              Eigen::Vector3d relative_dir = Eigen::Vector3d(xd, yd, zd) - md_.camera_pos_;
+              if (heading.dot(relative_dir.normalized()) > 0.5)
+                cloud.push_back(pcl::PointXYZ(xd, yd, zd));
+            }
           }
         }
 
-  cloud.width = cloud.points.size();
-  cloud.height = 1;
-  cloud.is_dense = true;
-  cloud.header.frame_id = mp_.frame_id_;
-  sensor_msgs::PointCloud2 cloud_msg;
-
-  pcl::toROSMsg(cloud, cloud_msg);
-  map_inf_pub_.publish(cloud_msg);
+  if (publish_front_map)
+  {
+    cloud.width = cloud.points.size();
+    cloud.height = 1;
+    cloud.is_dense = true;
+    cloud.header.frame_id = mp_.frame_id_;
+    sensor_msgs::PointCloud2 cloud_msg;
+    pcl::toROSMsg(cloud, cloud_msg);
+    map_inf_pub_.publish(cloud_msg);
+  }
+  if (publish_full_map)
+  {
+    full_cloud.width = full_cloud.points.size();
+    full_cloud.height = 1;
+    full_cloud.is_dense = true;
+    full_cloud.header.frame_id = mp_.frame_id_;
+    sensor_msgs::PointCloud2 full_cloud_msg;
+    pcl::toROSMsg(full_cloud, full_cloud_msg);
+    map_inf_full_pub_.publish(full_cloud_msg);
+  }
 }
 
 void GridMap::testIndexingCost()

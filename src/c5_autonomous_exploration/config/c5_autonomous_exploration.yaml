@@ -7,6 +7,11 @@ frontier_gain_weight: 1.00
 distance_weight: 0.25
 home_distance_weight: 0.10
 goal_min_distance: 1.00
+planner_clearance: 0.50
+planner_map_clearance: 0.15
+planner_waypoint_distance: 0.60
+min_goal_altitude: 0.80
+max_goal_altitude: 1.80
 nbs_beam_width: 8
 nbs_search_depth: 3
 rrag_connection_distance: 5.0
@@ -22,6 +27,7 @@ max_planner_failures: 2
 cloud_max_range: 40.0
 cloud_leaf_size: 0.40
 cloud_is_world_frame: false
+require_clear_path: true
 imu_topic: /mavros/imu/data
 image_topic: /c5/camera/image_raw
 vio_feature_topic: /c5/vio_features

@@ -30,16 +30,6 @@ void DynamicSceneFilter::update(const std::vector<Vec3>& points, double stamp) {
         }
       }
     }
-    if (nearest == tracks_.size() && !tracks_.empty()) {
-      double closest_distance = std::numeric_limits<double>::max();
-      for (std::size_t index = 0; index < tracks_.size(); ++index) {
-        const double candidate_distance = distance(point, tracks_[index].position);
-        if (candidate_distance < closest_distance) {
-          nearest = index;
-          closest_distance = candidate_distance;
-        }
-      }
-    }
     if (nearest == tracks_.size()) {
       SceneTrack track;
       track.position = point;
@@ -48,6 +38,7 @@ void DynamicSceneFilter::update(const std::vector<Vec3>& points, double stamp) {
       track.observations = 1;
       track.dynamic = false;
       tracks_.push_back(track);
+      consumed.push_back(true);
       static_points_.push_back(point);
       continue;
     }

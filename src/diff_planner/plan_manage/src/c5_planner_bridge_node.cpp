@@ -41,8 +41,8 @@ class C5PlannerBridgeNode {
     private_node_.param<std::string>("heartbeat_topic", heartbeat_topic, heartbeat_topic);
     private_node_.param<std::string>("mandatory_stop_topic", mandatory_stop_topic, mandatory_stop_topic);
     private_node_.param("map_leaf_size", map_leaf_size_, 0.2);
-    request_sub_ = node_.subscribe(request_topic, 10, &C5PlannerBridgeNode::requestCallback, this);
-    map_sub_ = node_.subscribe(occupied_map_topic, 2, &C5PlannerBridgeNode::mapCallback, this);
+    request_sub_ = node_.subscribe(request_topic, 1, &C5PlannerBridgeNode::requestCallback, this);
+    map_sub_ = node_.subscribe(occupied_map_topic, 1, &C5PlannerBridgeNode::mapCallback, this);
     odom_sub_ = node_.subscribe(odom_topic, 20, &C5PlannerBridgeNode::odomCallback, this);
     position_command_sub_ = node_.subscribe(position_command_topic, 20, &C5PlannerBridgeNode::positionCommandCallback, this);
     heartbeat_sub_ = node_.subscribe(heartbeat_topic, 10, &C5PlannerBridgeNode::heartbeatCallback, this);
@@ -63,11 +63,13 @@ class C5PlannerBridgeNode {
     private_node_.param("map_timeout", config.map_timeout, config.map_timeout);
     private_node_.param("arrival_tolerance", config.arrival_tolerance, config.arrival_tolerance);
     private_node_.param("require_map", config.require_map, config.require_map);
+    private_node_.param("require_clear_path", config.require_clear_path, config.require_clear_path);
     return config;
   }
 
   void requestCallback(const c5_autonomous_exploration::PlannerRequestConstPtr& message) {
-    const double stamp = message->header.stamp.isZero() ? ros::Time::now().toSec() : message->header.stamp.toSec();
+    // Timeout starts when this bridge receives the request, not at its possibly queued source stamp.
+    const double stamp = ros::Time::now().toSec();
     if (!have_position_) {
       publishDirect(message->sequence, BridgeFeedbackState::kRejectedStale,
                     BridgePoint(message->goal.pose.position.x, message->goal.pose.position.y, message->goal.pose.position.z), false, false, false,
@@ -90,6 +92,7 @@ class C5PlannerBridgeNode {
   }
 
   void mapCallback(const sensor_msgs::PointCloud2ConstPtr& message) {
+    const double received_at = ros::Time::now().toSec();
     pcl::PointCloud<pcl::PointXYZ>::Ptr raw(new pcl::PointCloud<pcl::PointXYZ>());
     pcl::fromROSMsg(*message, *raw);
     pcl::VoxelGrid<pcl::PointXYZ> filter;
@@ -105,8 +108,8 @@ class C5PlannerBridgeNode {
       }
     }
     const BridgeFeedbackState before = bridge_.feedback().state;
-    const double stamp = message->header.stamp.isZero() ? ros::Time::now().toSec() : message->header.stamp.toSec();
-    bridge_.updateMap(occupied, stamp);
+    // Freshness is based on local receipt time, not a possibly queued source timestamp.
+    bridge_.updateMap(occupied, received_at);
     const PlannerBridgeFeedback& feedback = bridge_.feedback();
     if (feedback.state != before && !feedback.success) {
       publishFeedback(feedback);
@@ -136,6 +139,7 @@ class C5PlannerBridgeNode {
   }
 
   void mandatoryStopCallback(const std_msgs::EmptyConstPtr&) {
+    ROS_WARN("C5 planner bridge received mandatory-stop signal");
     const PlannerBridgeFeedback feedback = bridge_.stop(ros::Time::now().toSec());
     publishFeedback(feedback);
   }
@@ -150,6 +154,9 @@ class C5PlannerBridgeNode {
   }
 
   void publishStop() {
+    ROS_WARN_STREAM("C5 planner bridge publishes mandatory stop: feedback_state="
+                    << static_cast<int>(bridge_.feedback().state)
+                    << " sequence=" << bridge_.feedback().sequence);
     std_msgs::Empty stop;
     stop_pub_.publish(stop);
   }

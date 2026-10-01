@@ -47,6 +47,8 @@ struct ExplorerConfig {
   double distance_weight;
   double home_distance_weight;
   double goal_min_distance;
+  double min_goal_altitude;
+  double max_goal_altitude;
   int nbs_beam_width;
   int nbs_search_depth;
   double rrag_connection_distance;

@@ -6,11 +6,12 @@ odom_topic: /quad_0/lidar_slam/odom
 position_command_topic: /position_cmd
 heartbeat_topic: /drone_0_traj_server/heartbeat
 mandatory_stop_topic: /mandatory_stop_to_planner
-minimum_clearance: 0.60
-command_timeout: 1.50
-goal_timeout: 12.0
+minimum_clearance: 0.50
+command_timeout: 10.0
+goal_timeout: 30.0
 heartbeat_timeout: 1.0
 map_timeout: 2.0
-arrival_tolerance: 0.35
+arrival_tolerance: 0.25
 map_leaf_size: 0.20
 require_map: true
+require_clear_path: true

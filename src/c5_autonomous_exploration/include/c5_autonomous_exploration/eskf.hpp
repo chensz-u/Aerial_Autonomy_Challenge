@@ -58,6 +58,10 @@ class ErrorStateKalmanFilter {
   EskfConfig config_;
   NavigationState state_;
   double last_nis_;
+  int consecutive_position_rejections_;
+  Vec3 last_rejected_position_;
+  int consecutive_velocity_rejections_;
+  Vec3 last_rejected_velocity_;
   bool initialized_;
 
   void correctVector(const Vec3& residual, int covariance_offset, double variance);

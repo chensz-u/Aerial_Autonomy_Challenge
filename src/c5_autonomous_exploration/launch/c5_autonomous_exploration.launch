@@ -1,6 +1,8 @@
 <launch>
   <arg name="odom_topic" default="/quad_0/lidar_slam/odom"/>
   <arg name="cloud_topic" default="/drone_0_pcl_render_node/cloud"/>
+  <arg name="cloud_is_world_frame" default="false"/>
+  <arg name="require_clear_path" default="true"/>
   <arg name="battery_topic" default="/mavros/battery"/>
   <arg name="link_topic" default="/c5/link_available"/>
   <arg name="estimator_topic" default="/c5/estimator_quality"/>
@@ -19,6 +21,8 @@
     <rosparam command="load" file="$(find c5_autonomous_exploration)/config/c5_autonomous_exploration.yaml"/>
     <param name="odom_topic" value="$(arg odom_topic)"/>
     <param name="cloud_topic" value="$(arg cloud_topic)"/>
+    <param name="cloud_is_world_frame" value="$(arg cloud_is_world_frame)"/>
+    <param name="require_clear_path" value="$(arg require_clear_path)"/>
     <param name="battery_topic" value="$(arg battery_topic)"/>
     <param name="link_topic" value="$(arg link_topic)"/>
     <param name="estimator_topic" value="$(arg estimator_topic)"/>

@@ -42,6 +42,7 @@ struct PlannerBridgeConfig {
   double map_timeout;
   double arrival_tolerance;
   bool require_map;
+  bool require_clear_path;
   PlannerBridgeConfig();
 };
 
@@ -88,10 +89,12 @@ class C5PlannerBridgeCore {
   bool active_;
   bool command_seen_;
   std::uint32_t last_sequence_;
+  double last_request_stamp_;
   double map_stamp_;
   double heartbeat_stamp_;
 
   bool pathClear(const BridgePoint& origin, const BridgePoint& target, double clearance) const;
+  bool goalClear(const BridgePoint& target, double clearance) const;
   void setFeedback(BridgeFeedbackState state, bool accepted, bool active, bool success, double stamp);
   static double distance(const BridgePoint& left, const BridgePoint& right);
   static double distanceToSegment(const BridgePoint& point, const BridgePoint& start, const BridgePoint& end);

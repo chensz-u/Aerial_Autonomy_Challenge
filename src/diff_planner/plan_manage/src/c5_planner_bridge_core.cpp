@@ -13,7 +13,7 @@ BridgePoint::BridgePoint(double x_value, double y_value, double z_value)
 
 PlannerBridgeConfig::PlannerBridgeConfig()
     : minimum_clearance(0.6), command_timeout(1.5), goal_timeout(12.0), heartbeat_timeout(1.0),
-      map_timeout(2.0), arrival_tolerance(0.35), require_map(true) {}
+      map_timeout(2.0), arrival_tolerance(0.35), require_map(true), require_clear_path(true) {}
 
 PlannerBridgeFeedback::PlannerBridgeFeedback()
     : sequence(0), state(BridgeFeedbackState::kRejectedNoMap), accepted(false), active(false), success(false),
@@ -22,13 +22,17 @@ PlannerBridgeFeedback::PlannerBridgeFeedback()
 C5PlannerBridgeCore::C5PlannerBridgeCore(const PlannerBridgeConfig& config)
     : config_(config), occupied_(), request_{0, PlannerRequestMode::kExplore, BridgePoint(), 0.0, 0.0}, feedback_(),
       position_(), map_ready_(false), position_ready_(false), active_(false), command_seen_(false), last_sequence_(0),
+      last_request_stamp_(-std::numeric_limits<double>::infinity()),
       map_stamp_(-std::numeric_limits<double>::infinity()), heartbeat_stamp_(-std::numeric_limits<double>::infinity()) {}
 
 void C5PlannerBridgeCore::updateMap(const std::vector<BridgePoint>& occupied, double stamp) {
   occupied_ = occupied;
   map_ready_ = true;
   map_stamp_ = stamp;
-  if (active_ && position_ready_ && !pathClear(position_, request_.goal, std::max(config_.minimum_clearance, request_.clearance))) {
+  const double clearance = std::max(config_.minimum_clearance, request_.clearance);
+  const bool safe = config_.require_clear_path ? pathClear(position_, request_.goal, clearance)
+                                               : goalClear(request_.goal, clearance);
+  if (active_ && position_ready_ && !safe) {
     active_ = false;
     setFeedback(BridgeFeedbackState::kRejectedMap, false, false, false, stamp);
   }
@@ -51,13 +55,15 @@ void C5PlannerBridgeCore::observePlannerHeartbeat(double stamp) {
 }
 
 PlannerBridgeFeedback C5PlannerBridgeCore::submit(const PlannerBridgeRequest& request, const BridgePoint& origin) {
-  if (request.sequence <= last_sequence_) {
+  if (request.stamp < last_request_stamp_ ||
+      (request.stamp == last_request_stamp_ && request.sequence <= last_sequence_)) {
     setFeedback(BridgeFeedbackState::kRejectedStale, false, false, false, request.stamp);
     feedback_.sequence = request.sequence;
     feedback_.goal = request.goal;
     return feedback_;
   }
   last_sequence_ = request.sequence;
+  last_request_stamp_ = request.stamp;
   request_ = request;
   feedback_.sequence = request.sequence;
   feedback_.goal = request.goal;
@@ -69,7 +75,9 @@ PlannerBridgeFeedback C5PlannerBridgeCore::submit(const PlannerBridgeRequest& re
     return feedback_;
   }
   const double clearance = std::max(config_.minimum_clearance, request.clearance);
-  if (!pathClear(origin, request.goal, clearance)) {
+  const bool safe = config_.require_clear_path ? pathClear(origin, request.goal, clearance)
+                                               : goalClear(request.goal, clearance);
+  if (!safe) {
     active_ = false;
     command_seen_ = false;
     setFeedback(BridgeFeedbackState::kRejectedMap, false, false, false, request.stamp);
@@ -133,6 +141,13 @@ const PlannerBridgeFeedback& C5PlannerBridgeCore::feedback() const {
 bool C5PlannerBridgeCore::pathClear(const BridgePoint& origin, const BridgePoint& target, double clearance) const {
   for (const BridgePoint& point : occupied_) {
     if (distanceToSegment(point, origin, target) < clearance) return false;
+  }
+  return true;
+}
+
+bool C5PlannerBridgeCore::goalClear(const BridgePoint& target, double clearance) const {
+  for (const BridgePoint& point : occupied_) {
+    if (distance(point, target) < clearance) return false;
   }
   return true;
 }
